@@ -95,6 +95,7 @@ export function validatePackage(
   packageItem: MaterialPackage,
   files: MaterialFile[],
   rules: LicenseRule[],
+  quotaRemaining?: number,
 ): ValidationFinding[] {
   const findings: ValidationFinding[] = []
   const packageFiles = files.filter((file) => file.packageId === packageItem.id)
@@ -145,10 +146,12 @@ export function validatePackage(
     )
   }
 
-  if (packageItem.quotaUsed >= packageItem.quotaLimit) {
-    add('quota', 'high', '许可额度已用尽。', '申请额度调整或拆分至其他有效许可。')
-  } else if (packageItem.quotaLimit - packageItem.quotaUsed <= 10) {
-    add('quota', 'medium', '剩余许可额度不足 10%。', '审批通过前确认额度来源和扣减顺序。')
+  if (typeof quotaRemaining === 'number') {
+    if (quotaRemaining <= 0) {
+      add('quota', 'high', '许可额度已用尽（含其他资料包预占）。', '申请额度调整或拆分至其他有效许可。')
+    } else if (quotaRemaining <= 10) {
+      add('quota', 'medium', '剩余许可额度不足 10%。', '预占前确认额度来源和扣减顺序，并发预占只有一个能成功。')
+    }
   }
 
   packageFiles.forEach((file) => {

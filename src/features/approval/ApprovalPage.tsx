@@ -44,6 +44,9 @@ export function ApprovalPage() {
   )
   const rule = data?.rules.find((item) => item.id === selected?.matchedRuleId)
   const activeStep = selected?.approvalRoute.find((step) => step.status === 'active')
+  const invalidSteps = selected?.approvalRoute.filter((step) => step.status === 'invalid') ?? []
+  const driftChanges = selected?.frozenBaseline?.driftChanges ?? []
+  const canRegenerate = Boolean(selected) && (!activeStep || invalidSteps.length > 0 || driftChanges.length > 0)
 
   if (isLoading || !data) return <div className="panel">正在加载审批路线...</div>
   const workspace = data
@@ -67,7 +70,10 @@ export function ApprovalPage() {
       title: '当前步骤',
       width: 160,
       render: (_, record) =>
-        record.approvalRoute.find((step) => step.status === 'active')?.role ?? '无活动步骤',
+        record.approvalRoute.find((step) => step.status === 'active')?.role ??
+        (record.approvalRoute.some((step) => step.status === 'invalid')
+          ? '路线已失效'
+          : '无活动步骤'),
     },
   ]
 
@@ -94,7 +100,9 @@ export function ApprovalPage() {
                 ? 'processing'
                 : value === 'returned'
                   ? 'error'
-                  : 'default'
+                  : value === 'invalid'
+                    ? 'warning'
+                    : 'default'
           }
         >
           {value === 'approved'
@@ -103,7 +111,9 @@ export function ApprovalPage() {
               ? '待审批'
               : value === 'returned'
                 ? '已退回'
-                : '未开始'}
+                : value === 'invalid'
+                  ? '已失效'
+                  : '未开始'}
         </Tag>
       ),
     },
@@ -147,28 +157,44 @@ export function ApprovalPage() {
   async function submitCurrent() {
     if (!selected) return
     const highFindings = workspace.findings.filter(
-      (item) => item.packageId === selected.id && item.level === 'high',
+      (item) => item.packageId === selected.id && item.level === 'high' && item.type !== 'baseline-drift',
     )
     if (highFindings.length) {
       message.error('存在高风险核对项，请先修复后提交')
       return
     }
-    await submitApproval({ packageId: selected.id }).unwrap()
-    message.success('审批路线已生成或重新发起')
+    try {
+      await submitApproval({ packageId: selected.id }).unwrap()
+      message.success('审批路线已生成/重新生成，并冻结资料包版本、文件引用与声明')
+    } catch (error) {
+      const detail =
+        typeof error === 'object' && error && 'data' in error
+          ? (error.data as { error?: string }).error
+          : undefined
+      message.error(detail ?? '提交失败')
+    }
   }
 
   async function confirmDecision() {
     if (!selected || !decidingStep) return
-    await decideApproval({
-      packageId: selected.id,
-      stepId: decidingStep.id,
-      decision,
-      comment,
-    }).unwrap()
-    message.success(decision === 'approve' ? '审批步骤已通过' : '资料包已退回，进入新一轮补正')
-    setDecisionOpen(false)
-    setComment('')
-    setDecidingStep(undefined)
+    try {
+      await decideApproval({
+        packageId: selected.id,
+        stepId: decidingStep.id,
+        decision,
+        comment,
+      }).unwrap()
+      message.success(decision === 'approve' ? '审批步骤已通过' : '资料包已退回，进入新一轮补正')
+      setDecisionOpen(false)
+      setComment('')
+      setDecidingStep(undefined)
+    } catch (error) {
+      const detail =
+        typeof error === 'object' && error && 'data' in error
+          ? (error.data as { error?: string }).error
+          : undefined
+      message.error(detail ?? '审批操作失败')
+    }
   }
 
   return (
@@ -180,7 +206,7 @@ export function ApprovalPage() {
           selected ? (
             <Button
               type="primary"
-              disabled={Boolean(activeStep)}
+              disabled={!canRegenerate}
               loading={submitState.isLoading}
               onClick={submitCurrent}
             >
@@ -221,12 +247,14 @@ export function ApprovalPage() {
                     title: step.role,
                     description: `${step.assignee} · ${
                       step.status === 'approved'
-                        ? '已通过'
+                        ? '已通过（保留）'
                         : step.status === 'returned'
                           ? '已退回'
                           : step.status === 'active'
                             ? '待处理'
-                            : '等待前序步骤'
+                            : step.status === 'invalid'
+                              ? '已失效，重新生成路线后重签'
+                              : '等待前序步骤'
                     }`,
                     status:
                       step.status === 'approved'
@@ -235,14 +263,40 @@ export function ApprovalPage() {
                           ? 'error'
                           : step.status === 'active'
                             ? 'process'
-                            : 'wait',
+                            : step.status === 'invalid'
+                              ? 'error'
+                              : 'wait',
                   }))}
                 />
               ) : (
                 <Alert type="info" showIcon message="尚未生成审批路线。" />
               )}
-              <Button onClick={submitCurrent} disabled={Boolean(activeStep)} loading={submitState.isLoading}>
-                重新生成审批路线
+              {selected.frozenBaseline ? (
+                <Alert
+                  type={driftChanges.length ? 'error' : 'info'}
+                  showIcon
+                  message={`冻结基线：资料包 ${selected.frozenBaseline.packageLabel} · ${selected.frozenBaseline.fileReferences.length} 个文件引用 · ${selected.frozenBaseline.declarations.length} 项声明`}
+                  description={
+                    driftChanges.length ? (
+                      <Space direction="vertical" size={4}>
+                        {driftChanges.map((drift) => (
+                          <span key={drift.id}>
+                            {drift.target}：{drift.before} → {drift.after}
+                          </span>
+                        ))}
+                      </Space>
+                    ) : (
+                      `由 ${selected.frozenBaseline.frozenBy} 于 ${new Date(
+                        selected.frozenBaseline.frozenAt,
+                      ).toLocaleString('zh-CN')} 冻结；冻结对象变化将即时失效未完成路线。`
+                    )
+                  }
+                />
+              ) : null}
+              <Button onClick={submitCurrent} disabled={!canRegenerate} loading={submitState.isLoading}>
+                {invalidSteps.length || driftChanges.length
+                  ? '重新生成审批路线（保留已通过步骤）'
+                  : '重新生成审批路线'}
               </Button>
             </Space>
           </section>
@@ -265,6 +319,23 @@ export function ApprovalPage() {
                     (item) => item.packageId === selected.id && item.level === 'high',
                   ).length
                 }
+              </Descriptions.Item>
+              <Descriptions.Item label="冻结资料包版本">
+                {selected.frozenBaseline?.packageLabel ?? '未冻结'}
+              </Descriptions.Item>
+              <Descriptions.Item label="冻结文件引用">
+                {selected.frozenBaseline
+                  ? `${selected.frozenBaseline.fileReferences.length} 个：${selected.frozenBaseline.fileReferences
+                      .map((item) => `${item.fileName}@${item.versionLabel}`)
+                      .join('、')}`
+                  : '无'}
+              </Descriptions.Item>
+              <Descriptions.Item label="基线漂移">
+                {driftChanges.length ? (
+                  <Tag color="error">{driftChanges.length} 项变化，路线已失效</Tag>
+                ) : (
+                  <Tag color="success">冻结对象一致</Tag>
+                )}
               </Descriptions.Item>
             </Descriptions>
           </section>

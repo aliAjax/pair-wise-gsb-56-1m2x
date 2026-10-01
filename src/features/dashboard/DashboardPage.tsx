@@ -15,8 +15,12 @@ export function DashboardPage() {
 
   const highFindings = data.findings.filter((item) => item.level === 'high')
   const activePackages = data.packages.filter((item) =>
-    ['validating', 'reviewing', 'returned'].includes(item.status),
+    ['validating', 'reviewing', 'returned', 'approved', 'quota-held', 'recheck'].includes(item.status),
   )
+  const heldAmount = data.reservations
+    .filter((item) => item.status === 'held')
+    .reduce((sum, item) => sum + item.amount, 0)
+  const recheckCount = data.licenses.filter((item) => item.status === 'pending-review').length
   const controlledPages = data.files.reduce(
     (total, file) =>
       total +
@@ -124,6 +128,13 @@ export function DashboardPage() {
           <strong>{controlledPages}</strong>
           <small>当前版本已标记受控的页面</small>
         </div>
+        <div className="metric info">
+          <span>在持预占 / 待复核许可</span>
+          <strong>
+            {heldAmount} / {recheckCount}
+          </strong>
+          <small>已预占额度单位 / 待人工复核许可数</small>
+        </div>
         <div className="metric">
           <span>逐页核对进度</span>
           <strong>
@@ -181,9 +192,10 @@ export function DashboardPage() {
               </p>
             </div>
             <div>
-              <strong>额度控制</strong>
+              <strong>核对链额度控制</strong>
               <p className="muted">
-                审批完成后才允许扣减许可额度，超额度或额度不足时拒绝执行。
+                提交审批冻结资料包版本、文件引用与声明；审批放行后先预占额度（并发仅一笔成功），
+                核销生成许可；冻结对象再变化未完成路线即时失效、许可转待复核且不释放额度。
               </p>
             </div>
           </Space>

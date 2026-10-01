@@ -27,6 +27,7 @@ import {
 } from '@/app/api'
 import type { FileVersion, MaterialCategory, MaterialFile } from '@/types/domain'
 import { categoryLabels } from '@/services/mockData'
+import { getRulePool } from '@/services/reconciliation'
 
 interface PackageFormValues {
   title: string
@@ -100,6 +101,8 @@ export function PackageEditorPage() {
 
   const rule = data.rules.find((item) => item.id === packageItem.matchedRuleId)
   const packageFindings = data.findings.filter((item) => item.packageId === packageId)
+  const pool = rule ? getRulePool(rule.id, data) : undefined
+  const driftChanges = packageItem.frozenBaseline?.driftChanges ?? []
 
   async function savePackageInfo() {
     const values = await packageForm.validateFields()
@@ -325,9 +328,11 @@ export function PackageEditorPage() {
               </div>
             </div>
             <div>
-              <strong>许可额度</strong>
+              <strong>许可额度（规则共享池）</strong>
               <div className="muted" style={{ marginTop: 5 }}>
-                已使用 {packageItem.quotaUsed} / {packageItem.quotaLimit}
+                {pool
+                  ? `上限 ${pool.limit} · 已核销 ${pool.consumed} · 在持预占 ${pool.held} · 剩余 ${pool.remaining}`
+                  : '未匹配规则'}
               </div>
             </div>
           </Space>
@@ -469,9 +474,27 @@ export function PackageEditorPage() {
               <div>{packageItem.currentRound ? `第 ${packageItem.currentRound} 轮` : '未提交'}</div>
             </div>
             <div>
-              <span className="muted">许可额度</span>
+              <span className="muted">许可额度（规则共享池）</span>
               <div>
-                {packageItem.quotaUsed} / {packageItem.quotaLimit}
+                {pool
+                  ? `已核销 ${pool.consumed} · 在持预占 ${pool.held} · 剩余 ${pool.remaining} / ${pool.limit}`
+                  : '未匹配规则'}
+              </div>
+            </div>
+            <div>
+              <span className="muted">冻结基线</span>
+              <div>
+                {packageItem.frozenBaseline ? (
+                  driftChanges.length ? (
+                    <Tag color="error">{driftChanges.length} 项冻结对象已变化，路线已失效</Tag>
+                  ) : (
+                    <Tag color="success">
+                      {packageItem.frozenBaseline.packageLabel} · 冻结对象一致
+                    </Tag>
+                  )
+                ) : (
+                  <Tag>未冻结（提交审批时冻结）</Tag>
+                )}
               </div>
             </div>
             <div>

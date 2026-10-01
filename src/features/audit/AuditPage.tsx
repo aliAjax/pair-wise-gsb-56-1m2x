@@ -85,6 +85,19 @@ export function AuditPage() {
         status: item.status,
         round: item.currentRound,
         rule: workspace.rules.find((rule) => rule.id === item.matchedRuleId)?.name,
+        frozenBaseline: item.frozenBaseline
+          ? {
+              packageLabel: item.frozenBaseline.packageLabel,
+              frozenAt: item.frozenBaseline.frozenAt,
+              frozenBy: item.frozenBaseline.frozenBy,
+              declarations: item.frozenBaseline.declarations,
+              fileReferences: item.frozenBaseline.fileReferences.map((reference) => ({
+                file: reference.fileName,
+                version: reference.versionLabel,
+              })),
+              driftChanges: item.frozenBaseline.driftChanges,
+            }
+          : null,
         files: workspace.files
           .filter((file) => file.packageId === item.id)
           .map((file) => ({
@@ -95,6 +108,8 @@ export function AuditPage() {
             )?.label,
           })),
       })),
+      reservations: workspace.reservations,
+      licenses: workspace.licenses,
       findings: workspace.findings,
       audit: workspace.audit,
     }

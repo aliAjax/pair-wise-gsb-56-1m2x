@@ -7,6 +7,7 @@ import type {
   WorkspaceState,
 } from '@/types/domain'
 import { createApprovalRoute, validatePackage } from './rules'
+import { backfillBaselines } from './reconciliation'
 
 function pages(
   count: number,
@@ -136,7 +137,7 @@ export function createInitialState(): WorkspaceState {
       matchedRuleId: 'rule-sg-composite',
       approvalRoute: createApprovalRoute('enhanced'),
       currentRound: 1,
-      quotaUsed: 36,
+      quotaUsed: 0,
       quotaLimit: 80,
       createdAt: '2026-09-20T02:10:00.000Z',
       updatedAt: now,
@@ -163,7 +164,7 @@ export function createInitialState(): WorkspaceState {
         decidedAt: '2026-09-27T03:20:00.000Z',
       })),
       currentRound: 1,
-      quotaUsed: 42,
+      quotaUsed: 0,
       quotaLimit: 120,
       createdAt: '2026-09-18T04:30:00.000Z',
       updatedAt: '2026-09-27T03:20:00.000Z',
@@ -194,7 +195,7 @@ export function createInitialState(): WorkspaceState {
           : { ...step },
       ),
       currentRound: 2,
-      quotaUsed: 27,
+      quotaUsed: 0,
       quotaLimit: 30,
       createdAt: '2026-09-16T01:15:00.000Z',
       updatedAt: '2026-09-26T08:10:00.000Z',
@@ -216,7 +217,7 @@ export function createInitialState(): WorkspaceState {
       matchedRuleId: 'rule-my-general',
       approvalRoute: [],
       currentRound: 0,
-      quotaUsed: 8,
+      quotaUsed: 0,
       quotaLimit: 100,
       createdAt: '2026-09-28T00:20:00.000Z',
       updatedAt: now,
@@ -325,7 +326,7 @@ export function createInitialState(): WorkspaceState {
   const findings = packages.flatMap((packageItem) =>
     validatePackage(packageItem, files, rules),
   )
-  return {
+  const state: WorkspaceState = {
     packages,
     files,
     rules,
@@ -373,11 +374,17 @@ export function createInitialState(): WorkspaceState {
         action: '批准资料包',
         target: '工业控制器基础软件包',
         operator: '合规专员',
-        detail: '全部审批步骤完成，等待许可额度扣减。',
+        detail: '全部审批步骤完成，等待额度预占与许可核销。',
         createdAt: '2026-09-27T03:20:00.000Z',
       },
     ],
+    reservations: [],
+    licenses: [],
   }
+
+  // 旧数据按当前引用版本回填冻结基线，并把历史额度占用补建为预占/核销记录
+  backfillBaselines(state)
+  return state
 }
 
 export const categoryLabels = {
@@ -391,7 +398,9 @@ export const packageStatusLabels: Record<MaterialPackage['status'], string> = {
   validating: '校验中',
   reviewing: '审批中',
   returned: '已退回',
-  approved: '已批准',
+  approved: '待预占',
+  'quota-held': '额度已预占',
   licensed: '已许可',
+  recheck: '待复核',
   locked: '已归档',
 }
