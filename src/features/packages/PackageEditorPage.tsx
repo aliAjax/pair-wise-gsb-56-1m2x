@@ -16,6 +16,7 @@ import { FileAddOutlined, HistoryOutlined, SaveOutlined } from '@ant-design/icon
 import { useNavigate, useParams } from 'react-router-dom'
 import { PageHeader } from '@/components/PageHeader'
 import { StatusTag } from '@/components/StatusTag'
+import { FreezeChainBanner } from '@/components/FreezeChainBanner'
 import {
   useAddFileVersionMutation,
   useCreatePackageVersionMutation,
@@ -27,6 +28,7 @@ import {
 } from '@/app/api'
 import type { FileVersion, MaterialCategory, MaterialFile } from '@/types/domain'
 import { categoryLabels } from '@/services/mockData'
+import { ruleQuotaPool } from '@/services/chain'
 
 interface PackageFormValues {
   title: string
@@ -99,6 +101,7 @@ export function PackageEditorPage() {
   }
 
   const rule = data.rules.find((item) => item.id === packageItem.matchedRuleId)
+  const pool = rule ? ruleQuotaPool(data, rule.id) : undefined
   const packageFindings = data.findings.filter((item) => item.packageId === packageId)
 
   async function savePackageInfo() {
@@ -327,7 +330,9 @@ export function PackageEditorPage() {
             <div>
               <strong>许可额度</strong>
               <div className="muted" style={{ marginTop: 5 }}>
-                已使用 {packageItem.quotaUsed} / {packageItem.quotaLimit}
+                {pool
+                  ? `规则池已核销 ${pool.used}、预占 ${pool.held}，剩余 ${pool.remaining} / ${pool.limit}`
+                  : '未匹配规则'}
               </div>
             </div>
           </Space>
@@ -376,6 +381,8 @@ export function PackageEditorPage() {
           style={{ marginBottom: 16 }}
         />
       ) : null}
+
+      <FreezeChainBanner packageItem={packageItem} />
 
       <div className="two-column">
         <section className="panel">
@@ -469,10 +476,8 @@ export function PackageEditorPage() {
               <div>{packageItem.currentRound ? `第 ${packageItem.currentRound} 轮` : '未提交'}</div>
             </div>
             <div>
-              <span className="muted">许可额度</span>
-              <div>
-                {packageItem.quotaUsed} / {packageItem.quotaLimit}
-              </div>
+              <span className="muted">许可额度（规则池剩余）</span>
+              <div>{pool ? `${pool.remaining} / ${pool.limit}` : '未匹配规则'}</div>
             </div>
             <div>
               <span className="muted">最近更新</span>

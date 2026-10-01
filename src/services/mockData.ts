@@ -6,6 +6,7 @@ import type {
   PageReview,
   WorkspaceState,
 } from '@/types/domain'
+import { migrateWorkspace, poolRemainingMap } from './chain'
 import { createApprovalRoute, validatePackage } from './rules'
 
 function pages(
@@ -116,6 +117,7 @@ const sw1 = version('V2.0', 5, true, '7EA2-319F', '标准控制器软件包')
 const sw2 = version('V2.1', 6, true, '52CC-8D10', '修复通信模块并更新校验文件')
 const us1 = version('V3.2', 12, false, 'E11A-77B4', '光刻设备参数说明', { controlled: true })
 const my1 = version('V1.0', 4, false, '88AB-3411', '厂房布置示意')
+const myLic = version('V1.0', 6, true, '12C4-77E0', '产线装配技术说明')
 
 export function createInitialState(): WorkspaceState {
   const now = '2026-09-28T06:00:00.000Z'
@@ -136,7 +138,7 @@ export function createInitialState(): WorkspaceState {
       matchedRuleId: 'rule-sg-composite',
       approvalRoute: createApprovalRoute('enhanced'),
       currentRound: 1,
-      quotaUsed: 36,
+      quotaUsed: 0,
       quotaLimit: 80,
       createdAt: '2026-09-20T02:10:00.000Z',
       updatedAt: now,
@@ -163,7 +165,7 @@ export function createInitialState(): WorkspaceState {
         decidedAt: '2026-09-27T03:20:00.000Z',
       })),
       currentRound: 1,
-      quotaUsed: 42,
+      quotaUsed: 0,
       quotaLimit: 120,
       createdAt: '2026-09-18T04:30:00.000Z',
       updatedAt: '2026-09-27T03:20:00.000Z',
@@ -194,7 +196,7 @@ export function createInitialState(): WorkspaceState {
           : { ...step },
       ),
       currentRound: 2,
-      quotaUsed: 27,
+      quotaUsed: 0,
       quotaLimit: 30,
       createdAt: '2026-09-16T01:15:00.000Z',
       updatedAt: '2026-09-26T08:10:00.000Z',
@@ -216,10 +218,37 @@ export function createInitialState(): WorkspaceState {
       matchedRuleId: 'rule-my-general',
       approvalRoute: [],
       currentRound: 0,
-      quotaUsed: 8,
+      quotaUsed: 0,
       quotaLimit: 100,
       createdAt: '2026-09-28T00:20:00.000Z',
       updatedAt: now,
+      versions: [],
+    },
+    {
+      id: 'pkg-005',
+      code: 'EC-2026-005',
+      title: '马来西亚产线装配技术说明',
+      category: 'technical',
+      applicant: '何岚',
+      recipient: 'Kuala Engineering Sdn. Bhd.',
+      destination: '马来西亚',
+      endUse: '汽车零部件产线设备装配',
+      technologyTags: ['装配工艺'],
+      personnelScopes: [],
+      declarations: ['最终用户声明', '最终用途声明'],
+      status: 'licensed',
+      matchedRuleId: 'rule-my-general',
+      approvalRoute: createApprovalRoute('standard').map((step) => ({
+        ...step,
+        status: 'approved',
+        comment: '资料与额度核对一致，准予许可。',
+        decidedAt: '2026-09-27T09:40:00.000Z',
+      })),
+      currentRound: 1,
+      quotaUsed: 20,
+      quotaLimit: 100,
+      createdAt: '2026-09-22T03:00:00.000Z',
+      updatedAt: '2026-09-27T09:40:00.000Z',
       versions: [],
     },
   ]
@@ -269,6 +298,15 @@ export function createInitialState(): WorkspaceState {
       activeVersionId: my1.id,
       referencedVersionId: my1.id,
       versions: [my1],
+    },
+    {
+      id: 'file-005-a',
+      packageId: 'pkg-005',
+      name: '产线装配技术说明.pdf',
+      kind: 'technical',
+      activeVersionId: myLic.id,
+      referencedVersionId: myLic.id,
+      versions: [myLic],
     },
   ]
 
@@ -322,62 +360,77 @@ export function createInitialState(): WorkspaceState {
     }
   })
 
-  const findings = packages.flatMap((packageItem) =>
-    validatePackage(packageItem, files, rules),
-  )
-  return {
+  // 旧数据迁移路径：按当前引用版本回填冻结基线，已核销资料包补齐预占与许可记录
+  const migrated = migrateWorkspace({
     packages,
     files,
     rules,
-    findings,
-    comments: [
-      {
-        id: 'comment-1',
-        packageId: 'pkg-001',
-        author: '合规专员',
-        content: '第 7 页固化温度属于受控技术参数，请校核脱敏后版本是否已替换。',
-        createdAt: '2026-09-27T07:30:00.000Z',
-        round: 1,
-      },
-      {
-        id: 'comment-2',
-        packageId: 'pkg-003',
-        author: '技术安全负责人',
-        content: '本轮退回原因：人员接触清单缺失，且外籍人员范围未在最终用户证明中说明。',
-        createdAt: '2026-09-26T08:10:00.000Z',
-        round: 2,
-      },
-    ],
-    audit: [
-      {
-        id: 'audit-1',
-        packageId: 'pkg-001',
-        action: '拆解资料包',
-        target: '复材机翼铺层工艺资料包',
-        operator: '合规专员',
-        detail: '拆分为 2 个文件，共 17 页。',
-        createdAt: '2026-09-27T02:30:00.000Z',
-      },
-      {
-        id: 'audit-2',
-        packageId: 'pkg-003',
-        action: '审批退回',
-        target: '精密光刻运动控制技术说明',
-        operator: '技术安全负责人',
-        detail: '需要补充人员接触清单并重新核对最终用途。',
-        createdAt: '2026-09-26T08:10:00.000Z',
-      },
-      {
-        id: 'audit-3',
-        packageId: 'pkg-002',
-        action: '批准资料包',
-        target: '工业控制器基础软件包',
-        operator: '合规专员',
-        detail: '全部审批步骤完成，等待许可额度扣减。',
-        createdAt: '2026-09-27T03:20:00.000Z',
-      },
-    ],
-  }
+    findings: [],
+    comments: [],
+    audit: [],
+    reservations: [],
+    licenses: [],
+  })
+
+  const remainingByRule = poolRemainingMap(migrated)
+  migrated.findings = migrated.packages.flatMap((packageItem) =>
+    validatePackage(
+      packageItem,
+      migrated.files,
+      migrated.rules,
+      packageItem.matchedRuleId
+        ? remainingByRule[packageItem.matchedRuleId]
+        : undefined,
+    ),
+  )
+  migrated.comments = [
+    {
+      id: 'comment-1',
+      packageId: 'pkg-001',
+      author: '合规专员',
+      content: '第 7 页固化温度属于受控技术参数，请校核脱敏后版本是否已替换。',
+      createdAt: '2026-09-27T07:30:00.000Z',
+      round: 1,
+    },
+    {
+      id: 'comment-2',
+      packageId: 'pkg-003',
+      author: '技术安全负责人',
+      content: '本轮退回原因：人员接触清单缺失，且外籍人员范围未在最终用户证明中说明。',
+      createdAt: '2026-09-26T08:10:00.000Z',
+      round: 2,
+    },
+  ]
+  migrated.audit = [
+    {
+      id: 'audit-1',
+      packageId: 'pkg-001',
+      action: '拆解资料包',
+      target: '复材机翼铺层工艺资料包',
+      operator: '合规专员',
+      detail: '拆分为 2 个文件，共 17 页。',
+      createdAt: '2026-09-27T02:30:00.000Z',
+    },
+    {
+      id: 'audit-2',
+      packageId: 'pkg-003',
+      action: '审批退回',
+      target: '精密光刻运动控制技术说明',
+      operator: '技术安全负责人',
+      detail: '需要补充人员接触清单并重新核对最终用途。',
+      createdAt: '2026-09-26T08:10:00.000Z',
+    },
+    {
+      id: 'audit-3',
+      packageId: 'pkg-002',
+      action: '批准资料包',
+      target: '工业控制器基础软件包',
+      operator: '合规专员',
+      detail: '全部审批步骤完成，等待许可额度预占与核销。',
+      createdAt: '2026-09-27T03:20:00.000Z',
+    },
+  ]
+  return migrated
 }
 
 export const categoryLabels = {
@@ -392,6 +445,8 @@ export const packageStatusLabels: Record<MaterialPackage['status'], string> = {
   reviewing: '审批中',
   returned: '已退回',
   approved: '已批准',
+  'quota-reserved': '额度已预占',
   licensed: '已许可',
+  'license-review': '待复核',
   locked: '已归档',
 }

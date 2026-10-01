@@ -183,7 +183,9 @@ export function PackageListPage() {
             { value: 'reviewing', label: '审批中' },
             { value: 'returned', label: '已退回' },
             { value: 'approved', label: '已批准' },
+            { value: 'quota-reserved', label: '额度已预占' },
             { value: 'licensed', label: '已许可' },
+            { value: 'license-review', label: '待复核' },
             { value: 'locked', label: '已归档' },
           ]}
           style={{ width: 140 }}

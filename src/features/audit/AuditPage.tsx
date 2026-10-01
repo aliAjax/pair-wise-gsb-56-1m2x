@@ -84,7 +84,22 @@ export function AuditPage() {
         destination: item.destination,
         status: item.status,
         round: item.currentRound,
+        routeInvalidated: item.routeInvalidated ?? false,
         rule: workspace.rules.find((rule) => rule.id === item.matchedRuleId)?.name,
+        freezeBaseline: item.freezeBaseline
+          ? {
+              packageVersion: item.freezeBaseline.packageVersionLabel,
+              round: item.freezeBaseline.round,
+              frozenBy: item.freezeBaseline.frozenBy,
+              frozenAt: item.freezeBaseline.frozenAt,
+              declarations: item.freezeBaseline.declarations,
+              files: Object.values(item.freezeBaseline.fileReferences).map((file) => ({
+                name: file.name,
+                version: `${file.label} · ${file.hash}`,
+                contentFingerprint: file.contentFingerprint,
+              })),
+            }
+          : null,
         files: workspace.files
           .filter((file) => file.packageId === item.id)
           .map((file) => ({
@@ -95,6 +110,8 @@ export function AuditPage() {
             )?.label,
           })),
       })),
+      reservations: workspace.reservations,
+      licenses: workspace.licenses,
       findings: workspace.findings,
       audit: workspace.audit,
     }

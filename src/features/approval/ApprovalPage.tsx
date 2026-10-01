@@ -15,6 +15,7 @@ import type { TableColumnsType } from 'antd'
 import { useSearchParams } from 'react-router-dom'
 import { PageHeader } from '@/components/PageHeader'
 import { StatusTag } from '@/components/StatusTag'
+import { FreezeChainBanner } from '@/components/FreezeChainBanner'
 import {
   useDecideApprovalMutation,
   useGetWorkspaceQuery,
@@ -48,6 +49,16 @@ export function ApprovalPage() {
   if (isLoading || !data) return <div className="panel">正在加载审批路线...</div>
   const workspace = data
 
+  /** 冻结漂移导致的失效正是重新发起的原因，不能阻断重提；其他高风险仍阻断 */
+  function blockingHighFor(packageId: string) {
+    return workspace.findings.filter(
+      (item) =>
+        item.packageId === packageId &&
+        item.level === 'high' &&
+        item.type !== 'freeze-drift',
+    )
+  }
+
   const packageColumns: TableColumnsType<MaterialPackage> = [
     { title: '编号', dataIndex: 'code', width: 135 },
     { title: '资料包', dataIndex: 'title', minWidth: 220 },
@@ -78,8 +89,13 @@ export function ApprovalPage() {
     {
       title: '等级',
       dataIndex: 'level',
-      width: 100,
-      render: (value: ApprovalStep['level']) => approvalLevelLabels[value],
+      width: 120,
+      render: (value: ApprovalStep['level'], record) => (
+        <Space size={4}>
+          <span>{approvalLevelLabels[value]}</span>
+          {record.carriedOver ? <Tag color="blue">沿用上轮</Tag> : null}
+        </Space>
+      ),
     },
     {
       title: '状态',
@@ -120,6 +136,7 @@ export function ApprovalPage() {
           <Space>
             <Button
               type="link"
+              disabled={Boolean(selected?.routeInvalidated)}
               onClick={() => {
                 setDecidingStep(record)
                 setDecision('approve')
@@ -131,6 +148,7 @@ export function ApprovalPage() {
             <Button
               type="link"
               danger
+              disabled={Boolean(selected?.routeInvalidated)}
               onClick={() => {
                 setDecidingStep(record)
                 setDecision('return')
@@ -146,15 +164,25 @@ export function ApprovalPage() {
 
   async function submitCurrent() {
     if (!selected) return
-    const highFindings = workspace.findings.filter(
-      (item) => item.packageId === selected.id && item.level === 'high',
-    )
-    if (highFindings.length) {
+    const blocking = blockingHighFor(selected.id)
+    if (blocking.length) {
       message.error('存在高风险核对项，请先修复后提交')
       return
     }
-    await submitApproval({ packageId: selected.id }).unwrap()
-    message.success('审批路线已生成或重新发起')
+    try {
+      await submitApproval({ packageId: selected.id }).unwrap()
+      message.success(
+        selected.routeInvalidated
+          ? '已按新冻结基线重新发起，已通过步骤保留，未完成步骤重新生成'
+          : '审批路线已生成或重新发起，冻结基线已固化',
+      )
+    } catch (error) {
+      const detail =
+        typeof error === 'object' && error && 'data' in error
+          ? (error.data as { error?: string }).error
+          : undefined
+      message.error(detail ?? '提交失败')
+    }
   }
 
   async function confirmDecision() {
@@ -171,16 +199,22 @@ export function ApprovalPage() {
     setDecidingStep(undefined)
   }
 
+  const canResubmit =
+    selected !== undefined &&
+    !activeStep &&
+    selected.status !== 'licensed' &&
+    selected.status !== 'license-review'
+
   return (
     <div>
       <PageHeader
         title="审批路线"
-        description="按规则等级生成顺序审批步骤，保留逐项意见并支持多轮退回、重新发起。"
+        description="提交即冻结资料包版本、文件引用版本和声明；冻结对象变化时未完成路线即时失效，已通过步骤保留并重排。"
         actions={
           selected ? (
             <Button
               type="primary"
-              disabled={Boolean(activeStep)}
+              disabled={!canResubmit}
               loading={submitState.isLoading}
               onClick={submitCurrent}
             >
@@ -204,6 +238,8 @@ export function ApprovalPage() {
           onRow={(record) => ({ onClick: () => setSelectedId(record.id) })}
         />
       </section>
+
+      {selected ? <FreezeChainBanner packageItem={selected} /> : null}
 
       {selected ? (
         <div className="two-column">
@@ -241,8 +277,8 @@ export function ApprovalPage() {
               ) : (
                 <Alert type="info" showIcon message="尚未生成审批路线。" />
               )}
-              <Button onClick={submitCurrent} disabled={Boolean(activeStep)} loading={submitState.isLoading}>
-                重新生成审批路线
+              <Button onClick={submitCurrent} disabled={!canResubmit} loading={submitState.isLoading}>
+                {selected.routeInvalidated ? '冻结已变化，重新发起审批' : '重新生成审批路线'}
               </Button>
             </Space>
           </section>
@@ -259,12 +295,22 @@ export function ApprovalPage() {
               </Descriptions.Item>
               <Descriptions.Item label="收件方">{selected.recipient}</Descriptions.Item>
               <Descriptions.Item label="最终用途">{selected.endUse}</Descriptions.Item>
-              <Descriptions.Item label="未关闭高风险">
+              <Descriptions.Item label="未关闭高风险（不含冻结漂移）">
                 {
                   data.findings.filter(
-                    (item) => item.packageId === selected.id && item.level === 'high',
+                    (item) =>
+                      item.packageId === selected.id &&
+                      item.level === 'high' &&
+                      item.type !== 'freeze-drift',
                   ).length
                 }
+              </Descriptions.Item>
+              <Descriptions.Item label="冻结基线">
+                {selected.freezeBaseline
+                  ? `${selected.freezeBaseline.packageVersionLabel} · ${Object.keys(
+                      selected.freezeBaseline.fileReferences,
+                    ).length} 个文件引用 · 第 ${selected.freezeBaseline.round} 轮`
+                  : '未冻结'}
               </Descriptions.Item>
             </Descriptions>
           </section>

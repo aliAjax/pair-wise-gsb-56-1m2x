@@ -95,6 +95,7 @@ export function validatePackage(
   packageItem: MaterialPackage,
   files: MaterialFile[],
   rules: LicenseRule[],
+  ruleRemaining?: number,
 ): ValidationFinding[] {
   const findings: ValidationFinding[] = []
   const packageFiles = files.filter((file) => file.packageId === packageItem.id)
@@ -145,10 +146,11 @@ export function validatePackage(
     )
   }
 
-  if (packageItem.quotaUsed >= packageItem.quotaLimit) {
-    add('quota', 'high', '许可额度已用尽。', '申请额度调整或拆分至其他有效许可。')
-  } else if (packageItem.quotaLimit - packageItem.quotaUsed <= 10) {
-    add('quota', 'medium', '剩余许可额度不足 10%。', '审批通过前确认额度来源和扣减顺序。')
+  const remaining = ruleRemaining ?? packageItem.quotaLimit - packageItem.quotaUsed
+  if (remaining <= 0) {
+    add('quota', 'high', '规则额度池已用尽（含其他资料包核销与预占）。', '申请额度调整或拆分至其他有效许可。')
+  } else if (remaining <= 10) {
+    add('quota', 'medium', `规则额度池仅剩 ${remaining}，不足 10 个单位。`, '审批通过前确认额度来源、预占与核销顺序。')
   }
 
   packageFiles.forEach((file) => {
@@ -171,6 +173,27 @@ export function validatePackage(
       )
     }
   })
+
+  if (packageItem.routeInvalidated) {
+    const detail = (packageItem.routeInvalidatedChanges ?? [])
+      .map((change) => `${change.target}：${change.before} → ${change.after}`)
+      .join('；')
+    add(
+      'freeze-drift',
+      'high',
+      `冻结对象已变化，当前审批路线失效。${detail}`,
+      '已通过步骤保留，请按新冻结基线重新发起路线并补签未完成步骤。',
+    )
+  }
+
+  if (packageItem.status === 'license-review') {
+    add(
+      'freeze-drift',
+      'high',
+      '许可核销后冻结对象发生变化，许可处于待复核状态，额度仍被占用。',
+      '人工复核：确认无误后重新核验放行，或撤回许可释放额度。',
+    )
+  }
 
   return findings
 }

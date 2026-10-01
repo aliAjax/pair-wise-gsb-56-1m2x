@@ -37,6 +37,11 @@ export function VersionDiffPage() {
 
   const diffs = selected ? diffPackageVersions(selected, versionId, files) : []
 
+  const frozenOf = (fileId: string) => selected?.freezeBaseline?.fileReferences[fileId]
+  const frozenMismatchCount = files.filter(
+    (file) => frozenOf(file.id) && frozenOf(file.id)!.versionId !== file.referencedVersionId,
+  ).length
+
   const fileColumns: TableColumnsType<MaterialFile> = [
     { title: '文件名称', dataIndex: 'name', minWidth: 230 },
     {
@@ -71,6 +76,20 @@ export function VersionDiffPage() {
           {file.activeVersionId === file.referencedVersionId ? '一致' : '错配'}
         </Tag>
       ),
+    },
+    {
+      title: '冻结引用版本',
+      width: 150,
+      render: (_, file) => {
+        const frozen = frozenOf(file.id)
+        return frozen ? (
+          <Tag color={frozen.versionId === file.referencedVersionId ? 'blue' : 'error'}>
+            {frozen.label}
+          </Tag>
+        ) : (
+          <span className="muted">未冻结</span>
+        )
+      },
     },
     {
       title: '版本数',
@@ -193,6 +212,14 @@ export function VersionDiffPage() {
             style={{ marginTop: 14 }}
           />
         )}
+        {frozenMismatchCount ? (
+          <Alert
+            type="warning"
+            showIcon
+            message={`其中 ${frozenMismatchCount} 个文件的当前引用已偏离审批冻结基线，未完成审批路线即时失效（已许可则转待复核）。`}
+            style={{ marginTop: 14 }}
+          />
+        ) : null}
       </section>
     </div>
   )

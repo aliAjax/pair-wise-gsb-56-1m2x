@@ -15,16 +15,11 @@ export function DashboardPage() {
 
   const highFindings = data.findings.filter((item) => item.level === 'high')
   const activePackages = data.packages.filter((item) =>
-    ['validating', 'reviewing', 'returned'].includes(item.status),
+    ['validating', 'reviewing', 'returned', 'approved', 'quota-reserved', 'license-review'].includes(item.status),
   )
-  const controlledPages = data.files.reduce(
-    (total, file) =>
-      total +
-      (file.versions.find((version) => version.id === file.activeVersionId)?.pages.filter(
-        (page) => page.controlled,
-      ).length ?? 0),
-    0,
-  )
+  const heldReservations = data.reservations.filter((item) => item.status === 'held')
+  const pendingReviewLicenses = data.licenses.filter((item) => item.status === 'pending-review')
+  const invalidatedRoutes = data.packages.filter((item) => item.routeInvalidated)
   const reviewedPages = data.files.reduce(
     (total, file) =>
       total +
@@ -117,12 +112,14 @@ export function DashboardPage() {
         <div className="metric info">
           <span>处理中资料包</span>
           <strong>{activePackages.length}</strong>
-          <small>审批中、已退回或校验中</small>
+          <small>审批中、已退回、已批准或已预占</small>
         </div>
         <div className="metric warning">
-          <span>受控技术页</span>
-          <strong>{controlledPages}</strong>
-          <small>当前版本已标记受控的页面</small>
+          <span>额度预占 / 待复核</span>
+          <strong>
+            {heldReservations.length} / {pendingReviewLicenses.length}
+          </strong>
+          <small>预占窗口互斥，待复核不释放额度</small>
         </div>
         <div className="metric">
           <span>逐页核对进度</span>
@@ -136,6 +133,24 @@ export function DashboardPage() {
           />
         </div>
       </section>
+
+      {invalidatedRoutes.length ? (
+        <Alert
+          showIcon
+          type="warning"
+          message={`${invalidatedRoutes.length} 个资料包冻结对象发生变化，未完成审批路线已即时失效，已通过步骤保留并等待重新发起。`}
+          style={{ marginBottom: 16 }}
+        />
+      ) : null}
+
+      {pendingReviewLicenses.length ? (
+        <Alert
+          showIcon
+          type="error"
+          message={`${pendingReviewLicenses.length} 份许可在核销后检测到冻结对象变化，已转为待复核且额度未释放，等待人工复核或撤回。`}
+          style={{ marginBottom: 16 }}
+        />
+      ) : null}
 
       {highFindings.length ? (
         <Alert
@@ -181,9 +196,9 @@ export function DashboardPage() {
               </p>
             </div>
             <div>
-              <strong>额度控制</strong>
+              <strong>额度预占与核销</strong>
               <p className="muted">
-                审批完成后才允许扣减许可额度，超额度或额度不足时拒绝执行。
+                审批放行先冻结基线，额度按规则池先预占后核销；并发提交只有一个窗口成功，核销失败保留预占可幂等重试。
               </p>
             </div>
           </Space>
